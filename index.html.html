@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Time Machine</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500;600&family=Playfair+Display:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f8f8f8; --paper: #ffffff; --dark: #1a1a1a;
+  --mid: #666666; --light: #aaaaaa; --lighter: #dddddd;
+  --border: rgba(0,0,0,0.08); --border-md: rgba(0,0,0,0.14);
+  --shadow: rgba(0,0,0,0.06);
+  --red: #d94f4f; --red-soft: #fdf0f0;
+  --blue: #4a7fa8; --blue-soft: #eef4f9;
+  --amber: #c4880a; --amber-soft: #fdf5e6;
+  --purple: #7a5fa8;
+  --sky: #4a8ec4; --sky-soft: #eef5fb;
+  --green: #4a9a6a; --green-soft: #eef7f2;
+}
+body { background: var(--bg); font-family: 'Noto Serif SC','PingFang SC',Georgia,serif; color: var(--dark); min-height: 100vh; }
+.app { max-width: 480px; margin: 0 auto; padding: 0 0 80px; }
+
+
+
+/* ── HEADER ── */
+.header { background: var(--paper); border-bottom: 1px solid var(--border); padding: 20px 20px 14px; position: sticky; top: 0; z-index: 20; }
+.header-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+.app-title { font-family: 'Playfair Display','Noto Serif SC',serif; font-size: 21px; font-weight: 500; letter-spacing: 0.5px; color: var(--dark); }
+.app-subtitle { font-size: 11px; color: var(--light); margin-top: 3px; }
+.header-right { display: flex; align-items: center; gap: 8px; }
+.date-badge { background: var(--dark); color: #fff; border-radius: 20px; padding: 5px 14px; font-size: 12px; white-space: nowrap; cursor: pointer; transition: opacity 0.2s; }
+.date-badge:hover { opacity: 0.8; }
+
+
+.nav { display: flex; border-radius: 12px; background: var(--bg); padding: 3px; border: 1px solid var(--border); }
+.nav-btn { flex: 1; border: none; background: none; padding: 8px; border-radius: 9px; font-size: 13px; color: var(--mid); cursor: pointer; font-family: inherit; transition: all 0.2s; letter-spacing: 0.3px; }
+.nav-btn.active { background: var(--paper); color: var(--dark); font-weight: 500; box-shadow: 0 1px 4px var(--shadow); }
+
+/* ── SECTIONS ── */
+.section { display: none; padding: 20px; }
+.section.active { display: block; }
+
+/* ── SYNC STATUS ── */
+.sync-bar { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--light); padding: 8px 0 0; }
+.sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--lighter); flex-shrink: 0; }
+.sync-dot.syncing { background: var(--amber); animation: pulse 1s infinite; }
+.sync-dot.synced { background: var(--green); }
+.sync-dot.error { background: var(--red); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ── CALENDAR MODAL ── */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 50; align-items: flex-end; justify-content: center; }
+.modal-overlay.show { display: flex; }
+.calendar-sheet { background: var(--paper); border-radius: 20px 20px 0 0; padding: 24px 20px 36px; width: 100%; max-width: 480px; animation: slideUp 0.28s ease; border-top: 1px solid var(--border); }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.cal-title { font-size: 15px; font-weight: 600; }
+.cal-nav-btn { border: none; background: var(--bg); font-size: 16px; color: var(--mid); cursor: pointer; padding: 6px 12px; border-radius: 8px; transition: background 0.15s; }
+.cal-nav-btn:hover { background: var(--lighter); }
+.cal-close { border: none; background: none; font-size: 13px; color: var(--light); cursor: pointer; font-family: inherit; padding: 4px 8px; }
+.cal-weekdays { display: grid; grid-template-columns: repeat(7,1fr); margin-bottom: 6px; }
+.cal-wd { text-align: center; font-size: 11px; color: var(--light); padding: 4px 0; }
+.cal-days { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; }
+.cal-day { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; transition: all 0.15s; border: 1.5px solid transparent; }
+.cal-day:hover:not(.empty) { background: var(--bg); }
+.cal-day.empty { pointer-events: none; }
+.cal-day.today { border-color: var(--dark); }
+.cal-day.selected { background: var(--dark) !important; color: #fff !important; }
+.cal-day.holiday .cal-day-num { color: var(--red); }
+.cal-day.workday-adjust .cal-day-num { color: var(--blue); }
+.cal-day.selected .cal-day-num { color: #fff !important; }
+.cal-day-num { font-size: 13px; line-height: 1; }
+.cal-day-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--dark); margin-top: 2px; }
+.cal-day.selected .cal-day-dot { background: rgba(255,255,255,0.7); }
+.cal-legend { display: flex; gap: 16px; margin-top: 14px; justify-content: center; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--light); }
+.legend-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+/* ── EDIT MODAL ── */
+.edit-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 60; align-items: flex-end; justify-content: center; }
+.edit-overlay.show { display: flex; }
+.edit-sheet { background: var(--paper); border-radius: 20px 20px 0 0; padding: 24px 20px 40px; width: 100%; max-width: 480px; animation: slideUp 0.28s ease; max-height: 90vh; overflow-y: auto; border-top: 1px solid var(--border); }
+.edit-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+.edit-title { font-size: 15px; font-weight: 600; }
+.edit-close { border: none; background: none; font-size: 13px; color: var(--light); cursor: pointer; font-family: inherit; }
+
+/* ── FORM ── */
+.form-card { background: var(--paper); border-radius: 16px; border: 1px solid var(--border); padding: 20px; margin-bottom: 12px; }
+.field-label { font-size: 11px; font-weight: 600; color: var(--light); letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 12px; }
+.field-group { margin-bottom: 20px; }
+.field-group:last-child { margin-bottom: 0; }
+.date-display { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 11px 14px; font-size: 14px; background: var(--bg); color: var(--dark); cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: border-color 0.2s; }
+.date-display:hover { border-color: var(--border-md); }
+.date-type-badge { font-size: 11px; padding: 3px 8px; border-radius: 8px; font-weight: 500; }
+.badge-holiday { background: var(--red-soft); color: var(--red); }
+.badge-workday-adjust { background: var(--blue-soft); color: var(--blue); }
+.badge-workday { background: var(--bg); border: 1px solid var(--border); color: var(--mid); }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--border-md); background: var(--bg); border-radius: 10px; padding: 8px 16px; font-size: 13px; cursor: pointer; transition: all 0.18s; color: var(--mid); font-family: inherit; white-space: nowrap; }
+.chip:hover { border-color: var(--dark); color: var(--dark); }
+.chip.selected { background: var(--dark); color: #fff; border-color: var(--dark); }
+.what-input { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 11px 14px; font-size: 14px; background: var(--bg); color: var(--dark); font-family: inherit; resize: none; outline: none; transition: border-color 0.2s; line-height: 1.6; }
+.what-input:focus { border-color: var(--border-md); background: var(--paper); }
+.what-input::placeholder { color: var(--lighter); }
+.tags-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tag { border: 1px solid var(--border); border-radius: 8px; padding: 4px 11px; font-size: 12px; color: var(--mid); cursor: pointer; transition: all 0.18s; background: var(--bg); }
+.tag:hover { border-color: var(--dark); color: var(--dark); background: var(--paper); }
+.duration-box { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.duration-toggle { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; cursor: pointer; }
+.duration-toggle-left { display: flex; align-items: center; gap: 10px; }
+.duration-toggle-label { font-size: 14px; color: var(--dark); }
+.duration-toggle-hint { font-size: 12px; color: var(--light); }
+.toggle-switch { position: relative; width: 38px; height: 22px; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-track { position: absolute; inset: 0; background: var(--lighter); border-radius: 11px; transition: background 0.2s; cursor: pointer; }
+.toggle-track::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #fff; top: 3px; left: 3px; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+input:checked + .toggle-track { background: var(--dark); }
+input:checked + .toggle-track::after { transform: translateX(16px); }
+.duration-manual { padding: 0 14px 14px; border-top: 1px solid var(--border); display: none; }
+.duration-manual.show { display: block; }
+.duration-manual-inner { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.duration-input { width: 90px; border: 1px solid var(--border-md); border-radius: 10px; padding: 10px 14px; font-size: 20px; font-weight: 600; background: var(--paper); color: var(--dark); font-family: inherit; outline: none; text-align: center; transition: border-color 0.2s; }
+.duration-input:focus { border-color: var(--dark); }
+.duration-unit { font-size: 13px; color: var(--light); }
+.duration-presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.preset-btn { border: 1px solid var(--border); background: var(--paper); border-radius: 8px; padding: 5px 10px; font-size: 12px; color: var(--mid); cursor: pointer; font-family: inherit; transition: all 0.18s; }
+.preset-btn:hover { border-color: var(--dark); color: var(--dark); }
+.duration-auto-info { font-size: 12px; color: var(--light); padding: 10px 14px 14px; border-top: 1px solid var(--border); display: none; }
+.duration-auto-info.show { display: block; }
+.mood-emojis { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.mood-item { display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--border); transition: all 0.18s; background: var(--bg); min-width: 50px; }
+.mood-item:hover { border-color: var(--border-md); background: var(--paper); }
+.mood-item.selected { border-color: var(--dark); background: var(--dark); }
+.mood-item.selected .mood-label { color: rgba(255,255,255,0.7); }
+.mood-emoji { font-size: 22px; }
+.mood-label { font-size: 10px; color: var(--light); }
+.mood-note { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 13px; background: var(--bg); color: var(--dark); font-family: inherit; resize: none; outline: none; transition: border-color 0.2s; line-height: 1.6; }
+.mood-note:focus { border-color: var(--border-md); background: var(--paper); }
+.mood-note::placeholder { color: var(--lighter); }
+.submit-btn { width: 100%; background: var(--dark); color: #fff; border: none; border-radius: 12px; padding: 15px; font-size: 14px; letter-spacing: 1px; cursor: pointer; font-family: inherit; font-weight: 500; transition: all 0.2s; }
+.submit-btn:hover { opacity: 0.85; transform: translateY(-1px); }
+.submit-btn:active { transform: translateY(0); }
+.submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+/* ── TOAST ── */
+.toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%) translateY(16px); background: var(--dark); color: #fff; padding: 10px 22px; border-radius: 20px; font-size: 13px; opacity: 0; transition: all 0.3s; pointer-events: none; z-index: 200; letter-spacing: 0.5px; white-space: nowrap; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── RECORDS ── */
+.records-list { display: flex; flex-direction: column; gap: 10px; }
+.record-date-header { font-size: 12px; color: var(--light); padding: 14px 0 8px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+.record-date-header:first-child { padding-top: 0; }
+.record-card { background: var(--paper); border-radius: 14px; border: 1px solid var(--border); padding: 15px; animation: fadeIn 0.25s ease; }
+.record-what { font-size: 15px; font-weight: 500; color: var(--dark); line-height: 1.5; }
+.record-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.meta-badge { border-radius: 7px; padding: 3px 9px; font-size: 11px; font-weight: 500; }
+.badge-period { background: var(--bg); border: 1px solid var(--border); color: var(--mid); }
+.badge-duration { background: var(--bg); border: 1px solid var(--border); color: var(--mid); }
+.badge-duration.auto { background: var(--amber-soft); color: var(--amber); border-color: transparent; }
+.badge-mood { background: var(--bg); border: 1px solid var(--border); color: var(--mid); }
+.record-note { font-size: 12px; color: var(--mid); margin-top: 8px; line-height: 1.6; border-left: 2px solid var(--border); padding-left: 10px; }
+.record-actions { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
+.action-btn { border: 1px solid var(--border); background: var(--bg); border-radius: 8px; padding: 5px 12px; font-size: 12px; color: var(--mid); cursor: pointer; font-family: inherit; transition: all 0.18s; }
+.action-btn.delete:hover { border-color: var(--red); color: var(--red); background: var(--red-soft); }
+.action-btn.edit:hover { border-color: var(--dark); color: var(--dark); }
+
+/* ── CONFIRM ── */
+.confirm-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 70; align-items: center; justify-content: center; padding: 20px; }
+.confirm-overlay.show { display: flex; }
+.confirm-box { background: var(--paper); border-radius: 16px; padding: 28px 24px; max-width: 300px; width: 100%; text-align: center; border: 1px solid var(--border); }
+.confirm-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.confirm-text { font-size: 13px; color: var(--mid); margin-bottom: 24px; line-height: 1.6; }
+.confirm-btns { display: flex; gap: 10px; }
+.confirm-btn { flex: 1; border: 1px solid var(--border); background: var(--bg); border-radius: 10px; padding: 12px; font-size: 14px; cursor: pointer; font-family: inherit; transition: all 0.18s; color: var(--mid); }
+.confirm-btn.danger { background: var(--red); color: #fff; border-color: var(--red); }
+
+/* ── STATS ── */
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.stat-card { background: var(--paper); border: 1px solid var(--border); border-radius: 14px; padding: 18px; text-align: center; }
+.stat-num { font-family: 'Playfair Display','Noto Serif SC',serif; font-size: 28px; font-weight: 400; color: var(--dark); letter-spacing: -1px; }
+.stat-label { font-size: 11px; color: var(--light); margin-top: 4px; letter-spacing: 0.5px; }
+.chart-card { background: var(--paper); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 12px; }
+.chart-title { font-size: 11px; font-weight: 600; color: var(--light); letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 16px; }
+.bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.bar-label { font-size: 12px; color: var(--mid); width: 36px; text-align: right; flex-shrink: 0; }
+.bar-track { flex: 1; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 4px; transition: width 0.7s ease; }
+.bar-val { font-size: 11px; color: var(--light); width: 40px; flex-shrink: 0; }
+.mood-stat-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.mood-stat-item { display: flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 6px 12px; font-size: 12px; color: var(--mid); }
+.mood-count { font-weight: 600; color: var(--dark); }
+
+/* ── AI CARD ── */
+.ai-card { background: var(--paper); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 14px; }
+.ai-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.ai-card-title { font-size: 11px; font-weight: 600; color: var(--light); letter-spacing: 0.8px; text-transform: uppercase; }
+.ai-refresh-btn { border: 1px solid var(--border); background: var(--bg); border-radius: 8px; padding: 4px 10px; font-size: 11px; color: var(--mid); cursor: pointer; font-family: inherit; transition: all 0.18s; }
+.ai-refresh-btn:hover { border-color: var(--dark); color: var(--dark); }
+.ai-refresh-btn.loading { opacity: 0.5; pointer-events: none; }
+.ai-body { font-size: 14px; line-height: 2; color: var(--dark); }
+.ai-body p { margin-bottom: 6px; }
+.ai-body p:last-child { margin-bottom: 0; }
+.ai-skeleton { display: flex; flex-direction: column; gap: 10px; }
+.ai-skeleton-line { height: 14px; background: var(--bg); border-radius: 6px; animation: shimmer 1.4s ease infinite; }
+@keyframes shimmer { 0%,100%{opacity:0.5} 50%{opacity:1} }
+.ai-empty { font-size: 13px; color: var(--light); text-align: center; padding: 10px 0; line-height: 1.8; }
+
+.empty-state { text-align: center; padding: 50px 20px; color: var(--light); }
+.empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.4; }
+.empty-text { font-size: 13px; line-height: 2; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+
+
+<!-- 主应用 -->
+<div class="app" id="mainApp">
+  <div class="header">
+    <div class="header-top">
+      <div>
+        <div class="app-title">Time Machine</div>
+        <div class="app-subtitle">记录每一刻，回望所有好时光</div>
+      </div>
+      <div class="header-right">
+        <div class="date-badge" id="dateBadge" onclick="openCalendar()"></div>
+      </div>
+    </div>
+    <div class="nav">
+      <button class="nav-btn active" onclick="switchTab('record',this)">记录</button>
+      <button class="nav-btn" onclick="switchTab('list',this)">日志</button>
+      <button class="nav-btn" onclick="switchTab('stats',this)">统计</button>
+    </div>
+  </div>
+
+  <!-- 记录 -->
+  <div class="section active" id="tab-record">
+    <div class="form-card">
+      <div class="field-group">
+        <div class="field-label">日期</div>
+        <div class="date-display" onclick="openCalendar()">
+          <span id="selectedDateLabel">今天</span>
+          <span class="date-type-badge" id="dayTypeBadge"></span>
+        </div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">时间段</div>
+        <div class="chips" id="periodChips">
+          <div class="chip" onclick="selectPeriodChip(this,'上午')">🌤 上午</div>
+          <div class="chip" onclick="selectPeriodChip(this,'下午')">☀️ 下午</div>
+          <div class="chip" onclick="selectPeriodChip(this,'晚间')">🌙 晚间</div>
+        </div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">做了什么</div>
+        <textarea class="what-input" id="whatInput" rows="2" placeholder="写下这件事…" oninput="renderTagSuggestions('tagSuggestions','whatInput')"></textarea>
+        <div class="tags-row" id="tagSuggestions"></div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">花了多久</div>
+        <div class="duration-box">
+          <div class="duration-toggle" onclick="toggleDurationManual()">
+            <div class="duration-toggle-left">
+              <div class="duration-toggle-label">手动填写时长</div>
+              <div class="duration-toggle-hint" id="durationHint">不填则按时间段计算</div>
+            </div>
+            <label class="toggle-switch" onclick="event.stopPropagation()">
+              <input type="checkbox" id="durationToggle" onchange="onDurationToggleChange()">
+              <div class="toggle-track"></div>
+            </label>
+          </div>
+          <div class="duration-auto-info" id="durationAutoInfo"></div>
+          <div class="duration-manual" id="durationManual">
+            <div class="duration-manual-inner">
+              <input type="number" class="duration-input" id="durationInput" placeholder="30" min="1">
+              <span class="duration-unit">分钟</span>
+            </div>
+            <div class="duration-presets">
+              <button class="preset-btn" onclick="setDuration(15)">15分钟</button>
+              <button class="preset-btn" onclick="setDuration(30)">30分钟</button>
+              <button class="preset-btn" onclick="setDuration(60)">1小时</button>
+              <button class="preset-btn" onclick="setDuration(90)">1.5小时</button>
+              <button class="preset-btn" onclick="setDuration(120)">2小时</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">心情</div>
+        <div class="mood-emojis" id="moodEmojis">
+          <div class="mood-item" data-mood="开心" onclick="selectMoodEl(this,'moodEmojis')"><span class="mood-emoji">😊</span><span class="mood-label">开心</span></div>
+          <div class="mood-item" data-mood="幸福" onclick="selectMoodEl(this,'moodEmojis')"><span class="mood-emoji">🥰</span><span class="mood-label">幸福</span></div>
+          <div class="mood-item" data-mood="平静" onclick="selectMoodEl(this,'moodEmojis')"><span class="mood-emoji">😌</span><span class="mood-label">平静</span></div>
+          <div class="mood-item" data-mood="焦虑" onclick="selectMoodEl(this,'moodEmojis')"><span class="mood-emoji">😰</span><span class="mood-label">焦虑</span></div>
+          <div class="mood-item" data-mood="难过" onclick="selectMoodEl(this,'moodEmojis')"><span class="mood-emoji">😢</span><span class="mood-label">难过</span></div>
+          <div class="mood-item" data-mood="疲惫" onclick="selectMoodEl(this,'moodEmojis')"><span class="mood-emoji">😮‍💨</span><span class="mood-label">疲惫</span></div>
+        </div>
+        <textarea class="mood-note" id="moodNote" rows="2" placeholder="此刻心里在想什么…（可选）"></textarea>
+      </div>
+    </div>
+    <button class="submit-btn" id="submitBtn" onclick="submitRecord()">记录这一刻</button>
+    <div class="sync-bar" id="syncBar" style="justify-content:flex-end">
+      <div class="sync-dot" id="syncDot"></div>
+      <span id="syncText"></span>
+    </div>
+  </div>
+
+  <!-- 日志 -->
+  <div class="section" id="tab-list">
+    <div class="records-list" id="recordsList"></div>
+  </div>
+
+  <!-- 统计 -->
+  <div class="section" id="tab-stats">
+    <div id="aiAnalysisCard"></div>
+    <div class="stats-grid" id="statsGrid"></div>
+    <div id="periodChart"></div>
+    <div id="moodChart"></div>
+    <div id="activityChart"></div>
+  </div>
+</div>
+
+<!-- 日历 -->
+<div class="modal-overlay" id="calendarOverlay" onclick="if(event.target.id==='calendarOverlay')closeCalendar()">
+  <div class="calendar-sheet">
+    <div class="cal-header">
+      <button class="cal-nav-btn" onclick="calNav(-1)">‹</button>
+      <div class="cal-title" id="calTitle"></div>
+      <button class="cal-nav-btn" onclick="calNav(1)">›</button>
+      <button class="cal-close" onclick="closeCalendar()">完成</button>
+    </div>
+    <div class="cal-weekdays">
+      <div class="cal-wd" style="color:var(--red)">日</div>
+      <div class="cal-wd">一</div><div class="cal-wd">二</div><div class="cal-wd">三</div>
+      <div class="cal-wd">四</div><div class="cal-wd">五</div>
+      <div class="cal-wd" style="color:var(--red)">六</div>
+    </div>
+    <div class="cal-days" id="calDays"></div>
+    <div class="cal-legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--dark)"></div>有记录</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>节假日</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div>调休上班</div>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑 -->
+<div class="edit-overlay" id="editOverlay" onclick="if(event.target.id==='editOverlay')closeEdit()">
+  <div class="edit-sheet">
+    <div class="edit-header">
+      <div class="edit-title">编辑记录</div>
+      <button class="edit-close" onclick="closeEdit()">取消</button>
+    </div>
+    <div class="field-group">
+      <div class="field-label">时间段</div>
+      <div class="chips" id="editPeriodChips">
+        <div class="chip" onclick="selectEditPeriodChip(this,'上午')">🌤 上午</div>
+        <div class="chip" onclick="selectEditPeriodChip(this,'下午')">☀️ 下午</div>
+        <div class="chip" onclick="selectEditPeriodChip(this,'晚间')">🌙 晚间</div>
+      </div>
+    </div>
+    <div class="field-group">
+      <div class="field-label">做了什么</div>
+      <textarea class="what-input" id="editWhatInput" rows="2" oninput="renderTagSuggestions('editTagSuggestions','editWhatInput')"></textarea>
+      <div class="tags-row" id="editTagSuggestions"></div>
+    </div>
+    <div class="field-group">
+      <div class="field-label">花了多久</div>
+      <div class="duration-box">
+        <div class="duration-toggle" onclick="toggleEditDurationManual()">
+          <div class="duration-toggle-left">
+            <div class="duration-toggle-label">手动填写时长</div>
+            <div class="duration-toggle-hint" id="editDurationHint">不填则按时间段计算</div>
+          </div>
+          <label class="toggle-switch" onclick="event.stopPropagation()">
+            <input type="checkbox" id="editDurationToggle" onchange="onEditDurationToggleChange()">
+            <div class="toggle-track"></div>
+          </label>
+        </div>
+        <div class="duration-auto-info" id="editDurationAutoInfo"></div>
+        <div class="duration-manual" id="editDurationManual">
+          <div class="duration-manual-inner">
+            <input type="number" class="duration-input" id="editDurationInput" placeholder="30" min="1">
+            <span class="duration-unit">分钟</span>
+          </div>
+          <div class="duration-presets">
+            <button class="preset-btn" onclick="document.getElementById('editDurationInput').value=15">15分钟</button>
+            <button class="preset-btn" onclick="document.getElementById('editDurationInput').value=30">30分钟</button>
+            <button class="preset-btn" onclick="document.getElementById('editDurationInput').value=60">1小时</button>
+            <button class="preset-btn" onclick="document.getElementById('editDurationInput').value=90">1.5小时</button>
+            <button class="preset-btn" onclick="document.getElementById('editDurationInput').value=120">2小时</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="field-group">
+      <div class="field-label">心情</div>
+      <div class="mood-emojis" id="editMoodEmojis">
+        <div class="mood-item" data-mood="开心" onclick="selectMoodEl(this,'editMoodEmojis')"><span class="mood-emoji">😊</span><span class="mood-label">开心</span></div>
+        <div class="mood-item" data-mood="幸福" onclick="selectMoodEl(this,'editMoodEmojis')"><span class="mood-emoji">🥰</span><span class="mood-label">幸福</span></div>
+        <div class="mood-item" data-mood="平静" onclick="selectMoodEl(this,'editMoodEmojis')"><span class="mood-emoji">😌</span><span class="mood-label">平静</span></div>
+        <div class="mood-item" data-mood="焦虑" onclick="selectMoodEl(this,'editMoodEmojis')"><span class="mood-emoji">😰</span><span class="mood-label">焦虑</span></div>
+        <div class="mood-item" data-mood="难过" onclick="selectMoodEl(this,'editMoodEmojis')"><span class="mood-emoji">😢</span><span class="mood-label">难过</span></div>
+        <div class="mood-item" data-mood="疲惫" onclick="selectMoodEl(this,'editMoodEmojis')"><span class="mood-emoji">😮‍💨</span><span class="mood-label">疲惫</span></div>
+      </div>
+      <textarea class="mood-note" id="editMoodNote" rows="2" placeholder="此刻心里在想什么…（可选）"></textarea>
+    </div>
+    <button class="submit-btn" onclick="saveEdit()" style="margin-top:8px">保存修改</button>
+  </div>
+</div>
+
+<!-- 删除确认 -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <div class="confirm-title">删除这条记录？</div>
+    <div class="confirm-text">删除后无法恢复，<br>确定要继续吗？</div>
+    <div class="confirm-btns">
+      <button class="confirm-btn" onclick="closeConfirm()">取消</button>
+      <button class="confirm-btn danger" onclick="confirmDelete()">删除</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── SUPABASE ──────────────────────────────────────────────
+const SUPA_URL = 'https://edxsrumerhajojxwopek.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkeHNydW1lcmhham9peHdvcGVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3NzI1ODUsImV4cCI6MjA5NTM0ODU4NX0.-xis8GOB4M3xHcxOjGsVKz9qs3CE3EcEqNY0UmZdd1k';
+const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+// ── 节假日数据 ────────────────────────────────────────────
+const CN_HOLIDAYS = new Set([
+  '2025-01-01',
+  '2025-01-28','2025-01-29','2025-01-30','2025-01-31','2025-02-01','2025-02-02','2025-02-03','2025-02-04',
+  '2025-04-04','2025-04-05','2025-04-06',
+  '2025-05-01','2025-05-02','2025-05-03','2025-05-04','2025-05-05',
+  '2025-05-31','2025-06-01','2025-06-02',
+  '2025-10-01','2025-10-02','2025-10-03','2025-10-04','2025-10-05','2025-10-06','2025-10-07','2025-10-08',
+  '2026-01-01','2026-01-02','2026-01-03',
+  '2026-02-17','2026-02-18','2026-02-19','2026-02-20','2026-02-21','2026-02-22','2026-02-23','2026-02-24',
+  '2026-04-04','2026-04-05','2026-04-06',
+  '2026-05-01','2026-05-02','2026-05-03','2026-05-04','2026-05-05',
+  '2026-06-19','2026-06-20','2026-06-21',
+  '2026-10-01','2026-10-02','2026-10-03','2026-10-04','2026-10-05','2026-10-06','2026-10-07','2026-10-08',
+]);
+const CN_WORKDAYS = new Set([
+  '2025-01-26','2025-02-08','2025-04-27','2025-09-28','2025-10-11',
+  '2026-01-04','2026-02-15','2026-02-28','2026-04-26','2026-10-10',
+]);
+const PERIOD_DEFAULTS = { '上午':180, '下午':300, '晚间':240 };
+const PERIOD_LABELS   = { '上午':'3小时', '下午':'5小时', '晚间':'4小时' };
+
+function dateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function getDayType(d) {
+  const k = dateKey(d);
+  if (CN_HOLIDAYS.has(k)) return 'holiday';
+  if (CN_WORKDAYS.has(k)) return 'workday-adjust';
+  return (d.getDay()===0||d.getDay()===6) ? 'holiday' : 'workday';
+}
+function dayTypeInfo(type) {
+  if (type==='holiday') return {text:'节假日',cls:'badge-holiday'};
+  if (type==='workday-adjust') return {text:'调休上班',cls:'badge-workday-adjust'};
+  return {text:'工作日',cls:'badge-workday'};
+}
+
+// ── STATE ─────────────────────────────────────────────────
+const S = {
+  user: null,
+  selectedDate: new Date(),
+  period: '', mood: '', manualDuration: false,
+  calYear: new Date().getFullYear(), calMonth: new Date().getMonth(),
+  editId: null, editPeriod: '', editMood: '', editManualDuration: false,
+  deleteId: null,
+  records: [],
+  tags: JSON.parse(localStorage.getItem('tmTags')||'["读书","运动","工作","学习","休息","看剧","做饭","散步","写作","开会"]')
+};
+
+// ── 固定用户ID（只有你一个人用，不需要登录）─────────────
+// 这个ID是你专属的，第一次访问自动生成并永久保存在浏览器里
+function getMyUserId() {
+  let uid = localStorage.getItem('tm_uid');
+  if (!uid) {
+    uid = 'user_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem('tm_uid', uid);
+  }
+  return uid;
+}
+
+// ── SUPABASE DATA ─────────────────────────────────────────
+function setSyncStatus(status, text) {
+  const dot = document.getElementById('syncDot');
+  const txt = document.getElementById('syncText');
+  if (!dot) return;
+  dot.className = 'sync-dot ' + status;
+  txt.textContent = text;
+}
+
+async function loadRecords() {
+  setSyncStatus('syncing','同步中…');
+  const { data, error } = await supa
+    .from('records')
+    .select('*')
+    .eq('user_id', S.user.id)
+    .order('date', { ascending: false });
+  if (error) { setSyncStatus('error','同步失败'); return; }
+  S.records = (data||[]).map(r => ({
+    id: r.id, date: r.date, period: r.period,
+    what: r.what, duration: r.duration, durationAuto: r.duration_auto,
+    mood: r.mood, moodNote: r.mood_note, time: r.time
+  }));
+  setSyncStatus('synced','已同步');
+}
+
+async function saveRecord(record) {
+  setSyncStatus('syncing','保存中…');
+  const row = {
+    id: record.id, user_id: S.user.id,
+    date: record.date, period: record.period,
+    what: record.what, duration: record.duration,
+    duration_auto: record.durationAuto,
+    mood: record.mood||null, mood_note: record.moodNote||null,
+    time: record.time
+  };
+  const { error } = await supa.from('records').upsert(row);
+  if (error) { setSyncStatus('error','保存失败'); showToast('云端保存失败，请重试'); }
+  else setSyncStatus('synced','已同步');
+}
+
+async function deleteRecord(id) {
+  setSyncStatus('syncing','删除中…');
+  const { error } = await supa.from('records').delete().eq('id', id).eq('user_id', S.user.id);
+  if (error) { setSyncStatus('error','删除失败'); showToast('云端删除失败'); }
+  else setSyncStatus('synced','已同步');
+}
+
+// ── UI INIT ───────────────────────────────────────────────
+// 自动初始化，不需要登录
+(async function autoInit() {
+  S.user = { id: getMyUserId() };
+  await loadRecords();
+  updateDateDisplay();
+  renderTagSuggestions('tagSuggestions','whatInput');
+  updateDurationAutoInfo();
+})();
+
+function updateDateDisplay() {
+  const d = S.selectedDate;
+  const isToday = dateKey(d) === dateKey(new Date());
+  const days = ['日','一','二','三','四','五','六'];
+  document.getElementById('dateBadge').textContent = isToday
+    ? `今天 ${d.getMonth()+1}/${d.getDate()}`
+    : `${d.getMonth()+1}月${d.getDate()}日 周${days[d.getDay()]}`;
+  document.getElementById('selectedDateLabel').textContent = isToday
+    ? `今天  ${d.getMonth()+1}月${d.getDate()}日`
+    : `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
+  const type = getDayType(d);
+  const info = dayTypeInfo(type);
+  const badge = document.getElementById('dayTypeBadge');
+  badge.textContent = info.text; badge.className = 'date-type-badge '+info.cls;
+}
+
+function switchTab(tab, btn) {
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  btn.classList.add('active');
+  if (tab==='list') renderList();
+  if (tab==='stats') renderStats();
+}
+
+// ── CALENDAR ──────────────────────────────────────────────
+function openCalendar() {
+  S.calYear=S.selectedDate.getFullYear(); S.calMonth=S.selectedDate.getMonth();
+  renderCalendar(); document.getElementById('calendarOverlay').classList.add('show');
+}
+function closeCalendar() {
+  document.getElementById('calendarOverlay').classList.remove('show');
+  updateDateDisplay(); updateDurationAutoInfo();
+}
+function calNav(dir) {
+  S.calMonth+=dir;
+  if(S.calMonth>11){S.calMonth=0;S.calYear++;}
+  if(S.calMonth<0){S.calMonth=11;S.calYear--;}
+  renderCalendar();
+}
+function renderCalendar() {
+  const {calYear:y,calMonth:m}=S;
+  document.getElementById('calTitle').textContent=`${y}年${m+1}月`;
+  const recordedDays=new Set(S.records.map(r=>r.date||dateKey(new Date(r.time))));
+  const first=new Date(y,m,1).getDay(), total=new Date(y,m+1,0).getDate();
+  const today=dateKey(new Date()), selKey=dateKey(S.selectedDate);
+  let html='';
+  for(let i=0;i<first;i++) html+=`<div class="cal-day empty"></div>`;
+  for(let d=1;d<=total;d++){
+    const date=new Date(y,m,d), key=dateKey(date), type=getDayType(date);
+    let cls='cal-day';
+    if(type==='holiday') cls+=' holiday';
+    if(type==='workday-adjust') cls+=' workday-adjust';
+    if(key===today) cls+=' today';
+    if(key===selKey) cls+=' selected';
+    const dot=recordedDays.has(key)?'<div class="cal-day-dot"></div>':'';
+    html+=`<div class="${cls}" onclick="calSelectDay(${y},${m},${d})"><div class="cal-day-num">${d}</div>${dot}</div>`;
+  }
+  document.getElementById('calDays').innerHTML=html;
+}
+function calSelectDay(y,m,d){S.selectedDate=new Date(y,m,d);renderCalendar();}
+
+// ── PERIOD ────────────────────────────────────────────────
+function selectPeriodChip(el,val){
+  document.getElementById('periodChips').querySelectorAll('.chip').forEach(c=>c.classList.remove('selected'));
+  el.classList.add('selected'); S.period=val; updateDurationAutoInfo();
+}
+function selectEditPeriodChip(el,val){
+  document.getElementById('editPeriodChips').querySelectorAll('.chip').forEach(c=>c.classList.remove('selected'));
+  el.classList.add('selected'); S.editPeriod=val; updateEditDurationAutoInfo();
+}
+
+// ── DURATION ──────────────────────────────────────────────
+function updateDurationAutoInfo(){
+  const info=document.getElementById('durationAutoInfo'),hint=document.getElementById('durationHint');
+  if(!S.manualDuration&&S.period){
+    info.textContent=`将记录为整个${S.period}（默认 ${PERIOD_LABELS[S.period]}）`;
+    info.classList.add('show'); hint.textContent=`将使用 ${PERIOD_LABELS[S.period]}`;
+  } else {
+    info.classList.remove('show');
+    hint.textContent=S.manualDuration?'请填写具体时长':'不填则按时间段计算';
+  }
+}
+function toggleDurationManual(){const cb=document.getElementById('durationToggle');cb.checked=!cb.checked;onDurationToggleChange();}
+function onDurationToggleChange(){
+  S.manualDuration=document.getElementById('durationToggle').checked;
+  document.getElementById('durationManual').classList.toggle('show',S.manualDuration);
+  updateDurationAutoInfo();
+}
+function updateEditDurationAutoInfo(){
+  const info=document.getElementById('editDurationAutoInfo');
+  if(!S.editManualDuration&&S.editPeriod){info.textContent=`将记录为整个${S.editPeriod}（默认 ${PERIOD_LABELS[S.editPeriod]}）`;info.classList.add('show');}
+  else info.classList.remove('show');
+}
+function toggleEditDurationManual(){const cb=document.getElementById('editDurationToggle');cb.checked=!cb.checked;onEditDurationToggleChange();}
+function onEditDurationToggleChange(){
+  S.editManualDuration=document.getElementById('editDurationToggle').checked;
+  document.getElementById('editDurationManual').classList.toggle('show',S.editManualDuration);
+  updateEditDurationAutoInfo();
+}
+function setDuration(min){document.getElementById('durationInput').value=min;}
+function getEffectiveDuration(period,manualVal){
+  if(manualVal&&parseInt(manualVal)>0) return {val:parseInt(manualVal),auto:false};
+  return {val:PERIOD_DEFAULTS[period]||60,auto:true};
+}
+
+// ── MOOD ──────────────────────────────────────────────────
+function selectMoodEl(el,cid){
+  document.getElementById(cid).querySelectorAll('.mood-item').forEach(m=>m.classList.remove('selected'));
+  el.classList.add('selected');
+  if(cid==='moodEmojis') S.mood=el.dataset.mood;
+  if(cid==='editMoodEmojis') S.editMood=el.dataset.mood;
+}
+
+// ── TAGS ──────────────────────────────────────────────────
+function renderTagSuggestions(cid,inputId){
+  const input=document.getElementById(inputId).value.trim();
+  const filtered=input?S.tags.filter(t=>t.includes(input)||input.includes(t)).slice(0,8):S.tags.slice(0,10);
+  document.getElementById(cid).innerHTML=filtered.map(t=>`<div class="tag" onclick="selectTag('${t}','${inputId}')">${t}</div>`).join('');
+}
+function selectTag(tag,inputId){
+  document.getElementById(inputId).value=tag;
+  renderTagSuggestions(inputId==='whatInput'?'tagSuggestions':'editTagSuggestions',inputId);
+}
+function saveTags(){localStorage.setItem('tmTags',JSON.stringify(S.tags));}
+
+// ── SUBMIT ────────────────────────────────────────────────
+async function submitRecord(){
+  const what=document.getElementById('whatInput').value.trim();
+  const moodNote=document.getElementById('moodNote').value.trim();
+  if(!S.period) return showToast('请选择时间段');
+  if(!what) return showToast('写下做了什么吧');
+  const rawDur=document.getElementById('durationInput').value;
+  const dur=getEffectiveDuration(S.period,S.manualDuration?rawDur:'');
+  const btn=document.getElementById('submitBtn');
+  btn.disabled=true; btn.textContent='保存中…';
+  const record={
+    id:Date.now(), date:dateKey(S.selectedDate), period:S.period,
+    what, duration:dur.val, durationAuto:dur.auto,
+    mood:S.mood, moodNote, time:new Date().toISOString()
+  };
+  await saveRecord(record);
+  S.records.unshift(record);
+  S.records.sort((a,b)=>b.date>a.date?1:-1);
+  if(!S.tags.includes(what)){S.tags.unshift(what);if(S.tags.length>40)S.tags=S.tags.slice(0,40);saveTags();}
+  document.getElementById('whatInput').value='';
+  document.getElementById('durationInput').value='';
+  document.getElementById('moodNote').value='';
+  document.getElementById('periodChips').querySelectorAll('.chip').forEach(c=>c.classList.remove('selected'));
+  document.getElementById('moodEmojis').querySelectorAll('.mood-item').forEach(m=>m.classList.remove('selected'));
+  document.getElementById('durationToggle').checked=false;
+  document.getElementById('durationManual').classList.remove('show');
+  S.period=''; S.mood=''; S.manualDuration=false;
+  renderTagSuggestions('tagSuggestions','whatInput');
+  updateDurationAutoInfo();
+  btn.disabled=false; btn.textContent='记录这一刻';
+  showToast('已记录 ✓');
+}
+
+// ── LIST ──────────────────────────────────────────────────
+function moodEmoji(m){return{'开心':'😊','幸福':'🥰','平静':'😌','焦虑':'😰','难过':'😢','疲惫':'😮‍💨'}[m]||'';}
+function periodIcon(p){return{'上午':'🌤','下午':'☀️','晚间':'🌙'}[p]||'';}
+function fmtDuration(min){return min>=60?`${Math.floor(min/60)}h${min%60?(min%60)+'m':''}`:min+'m';}
+
+function renderList(){
+  const el=document.getElementById('recordsList');
+  if(!S.records.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">📖</div><div class="empty-text">还没有任何记录<br>去写下第一笔吧</div></div>`;return;}
+  const groups={};
+  S.records.forEach(r=>{const d=r.date||dateKey(new Date(r.time));if(!groups[d])groups[d]=[];groups[d].push(r);});
+  const sortedDates=Object.keys(groups).sort((a,b)=>b>a?1:-1);
+  let html='';
+  sortedDates.forEach(date=>{
+    const [y,m,d]=date.split('-');
+    const obj=new Date(parseInt(y),parseInt(m)-1,parseInt(d));
+    const days=['周日','周一','周二','周三','周四','周五','周六'];
+    const type=getDayType(obj),info=dayTypeInfo(type);
+    const tc=type==='holiday'?'var(--red)':type==='workday-adjust'?'var(--blue)':'var(--light)';
+    html+=`<div class="record-date-header"><span>${y}年${parseInt(m)}月${parseInt(d)}日 ${days[obj.getDay()]}</span><span style="color:${tc};font-size:11px">${info.text}</span></div>`;
+    groups[date].forEach(r=>{
+      const dCls=r.durationAuto?'badge-duration auto':'badge-duration';
+      const dTxt=r.durationAuto?`${periodIcon(r.period)} 整个${r.period} ${fmtDuration(r.duration)}`:`⏱ ${fmtDuration(r.duration)}`;
+      html+=`<div class="record-card">
+        <div class="record-what">${r.what}</div>
+        <div class="record-meta">
+          <span class="meta-badge badge-period">${periodIcon(r.period)} ${r.period}</span>
+          <span class="meta-badge ${dCls}">${dTxt}</span>
+          ${r.mood?`<span class="meta-badge badge-mood">${moodEmoji(r.mood)} ${r.mood}</span>`:''}
+        </div>
+        ${r.moodNote?`<div class="record-note">${r.moodNote}</div>`:''}
+        <div class="record-actions">
+          <button class="action-btn edit" onclick="openEdit(${r.id})">编辑</button>
+          <button class="action-btn delete" onclick="openConfirm(${r.id})">删除</button>
+        </div>
+      </div>`;
+    });
+  });
+  el.innerHTML=html;
+}
+
+// ── EDIT ──────────────────────────────────────────────────
+function openEdit(id){
+  const r=S.records.find(x=>x.id===id); if(!r) return;
+  S.editId=id; S.editPeriod=r.period; S.editMood=r.mood; S.editManualDuration=!r.durationAuto;
+  document.getElementById('editWhatInput').value=r.what;
+  document.getElementById('editMoodNote').value=r.moodNote||'';
+  const toggle=document.getElementById('editDurationToggle');
+  toggle.checked=!r.durationAuto;
+  document.getElementById('editDurationManual').classList.toggle('show',!r.durationAuto);
+  document.getElementById('editDurationInput').value=r.durationAuto?'':r.duration;
+  document.getElementById('editPeriodChips').querySelectorAll('.chip').forEach(c=>{
+    c.classList.toggle('selected',c.textContent.trim().replace(/^.\s/,'')=== r.period);
+  });
+  document.getElementById('editMoodEmojis').querySelectorAll('.mood-item').forEach(m=>{
+    m.classList.toggle('selected',m.dataset.mood===r.mood);
+  });
+  renderTagSuggestions('editTagSuggestions','editWhatInput');
+  updateEditDurationAutoInfo();
+  document.getElementById('editOverlay').classList.add('show');
+}
+function closeEdit(){document.getElementById('editOverlay').classList.remove('show');}
+async function saveEdit(){
+  const what=document.getElementById('editWhatInput').value.trim();
+  const moodNote=document.getElementById('editMoodNote').value.trim();
+  if(!S.editPeriod) return showToast('请选择时间段');
+  if(!what) return showToast('写下做了什么吧');
+  const rawDur=document.getElementById('editDurationInput').value;
+  const dur=getEffectiveDuration(S.editPeriod,S.editManualDuration?rawDur:'');
+  const idx=S.records.findIndex(x=>x.id===S.editId);
+  if(idx>-1){
+    S.records[idx]={...S.records[idx],period:S.editPeriod,what,duration:dur.val,durationAuto:dur.auto,mood:S.editMood,moodNote};
+    await saveRecord(S.records[idx]);
+    if(!S.tags.includes(what)){S.tags.unshift(what);saveTags();}
+  }
+  closeEdit(); renderList(); showToast('已保存修改 ✓');
+}
+
+// ── DELETE ────────────────────────────────────────────────
+function openConfirm(id){S.deleteId=id;document.getElementById('confirmOverlay').classList.add('show');}
+function closeConfirm(){document.getElementById('confirmOverlay').classList.remove('show');}
+async function confirmDelete(){
+  S.records=S.records.filter(r=>r.id!==S.deleteId);
+  await deleteRecord(S.deleteId);
+  closeConfirm(); renderList(); showToast('已删除');
+}
+
+// ── STATS ─────────────────────────────────────────────────
+function renderStats(){
+  const records=S.records;
+  runAiAnalysis();
+  if(!records.length){
+    document.getElementById('statsGrid').innerHTML=`<div class="empty-state" style="grid-column:span 2"><div class="empty-icon">📊</div><div class="empty-text">记录多了<br>这里会展示你的时间故事</div></div>`;
+    ['periodChart','moodChart','activityChart'].forEach(id=>document.getElementById(id).innerHTML='');
+    return;
+  }
+  const totalMin=records.reduce((s,r)=>s+r.duration,0);
+  document.getElementById('statsGrid').innerHTML=`
+    <div class="stat-card"><div class="stat-num">${records.length}</div><div class="stat-label">记录次数</div></div>
+    <div class="stat-card"><div class="stat-num">${(totalMin/60).toFixed(1)}</div><div class="stat-label">总时长 (小时)</div></div>
+    <div class="stat-card"><div class="stat-num">${Math.round(totalMin/records.length)}</div><div class="stat-label">平均时长 (分)</div></div>
+    <div class="stat-card"><div class="stat-num">${new Set(records.map(r=>r.what)).size}</div><div class="stat-label">不同活动</div></div>
+  `;
+  const pm={'上午':0,'下午':0,'晚间':0},pc={'上午':'#c4880a','下午':'#4a7fa8','晚间':'#7a5fa8'};
+  records.forEach(r=>{if(pm[r.period]!==undefined)pm[r.period]+=r.duration;});
+  const maxP=Math.max(...Object.values(pm),1);
+  document.getElementById('periodChart').innerHTML=`<div class="chart-card"><div class="chart-title">时间段分布（分钟）</div>
+    ${Object.entries(pm).map(([k,v])=>`<div class="bar-row"><div class="bar-label">${k}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(v/maxP*100)}%;background:${pc[k]}"></div></div><div class="bar-val">${v}m</div></div>`).join('')}</div>`;
+  const mm={};
+  records.forEach(r=>{if(r.mood)mm[r.mood]=(mm[r.mood]||0)+1;});
+  document.getElementById('moodChart').innerHTML=Object.keys(mm).length?`<div class="chart-card"><div class="chart-title">心情记录</div><div class="mood-stat-row">
+    ${Object.entries(mm).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="mood-stat-item">${moodEmoji(k)} ${k} <span class="mood-count">${v}次</span></div>`).join('')}</div></div>`:'';
+  const am={};
+  records.forEach(r=>{am[r.what]=(am[r.what]||0)+r.duration;});
+  const top=Object.entries(am).sort((a,b)=>b[1]-a[1]).slice(0,6),maxA=Math.max(...top.map(x=>x[1]),1);
+  document.getElementById('activityChart').innerHTML=top.length?`<div class="chart-card"><div class="chart-title">活动时长排行（分钟）</div>
+    ${top.map(([k,v])=>`<div class="bar-row"><div class="bar-label" style="width:52px;font-size:11px">${k.length>4?k.slice(0,4)+'…':k}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(v/maxA*100)}%;background:var(--dark)"></div></div><div class="bar-val">${v}m</div></div>`).join('')}</div>`:'';
+}
+
+// ── AI 分析 ───────────────────────────────────────────────
+let aiCacheKey='';
+function renderAiCard(state){
+  document.getElementById('aiAnalysisCard').innerHTML=`<div class="ai-card">
+    <div class="ai-card-header">
+      <div class="ai-card-title">✦ AI 时间洞察</div>
+      <button class="ai-refresh-btn ${state==='loading'?'loading':''}" onclick="runAiAnalysis(true)">${state==='loading'?'分析中…':'重新分析'}</button>
+    </div>
+    <div id="aiCardBody"></div>
+  </div>`;
+}
+function buildDataSummary(records){
+  const totalMin=records.reduce((s,r)=>s+r.duration,0);
+  const byPeriod={},byActivity={},byMood={},byDayType={};
+  records.forEach(r=>{
+    byPeriod[r.period]=(byPeriod[r.period]||0)+r.duration;
+    byActivity[r.what]=(byActivity[r.what]||0)+r.duration;
+    if(r.mood) byMood[r.mood]=(byMood[r.mood]||0)+1;
+    const dt=getDayType(new Date((r.date||r.time.slice(0,10)).replace(/-/g,'/')));
+    byDayType[dt]=(byDayType[dt]||0)+r.duration;
+  });
+  const recentDays={};
+  records.slice(0,20).forEach(r=>{
+    const d=r.date||r.time.slice(0,10);
+    if(!recentDays[d]) recentDays[d]=[];
+    recentDays[d].push(`${r.period}做了"${r.what}"${r.duration}分钟${r.mood?'(心情:'+r.mood+')':''}`);
+  });
+  return {
+    totalRecords:records.length, totalHours:(totalMin/60).toFixed(1),
+    byPeriod, byDayType,
+    topActivities:Object.entries(byActivity).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`${k}(${v}分钟)`).join('、'),
+    topMood:Object.entries(byMood).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k}${v}次`).join('、'),
+    recentStr:Object.entries(recentDays).slice(0,7).map(([d,arr])=>`${d}: ${arr.join('；')}`).join('\n')
+  };
+}
+async function runAiAnalysis(force=false){
+  const records=S.records,el=document.getElementById('aiAnalysisCard');
+  if(!records.length){el.innerHTML=`<div class="ai-card"><div class="ai-card-header"><div class="ai-card-title">✦ AI 时间洞察</div></div><div class="ai-empty">记录更多内容后，AI 会帮你分析时间规律 ✦</div></div>`;return;}
+  const cacheKey=records.length+'_'+records[0]?.id;
+  if(!force&&aiCacheKey===cacheKey&&el.innerHTML.includes('ai-body')) return;
+  aiCacheKey=cacheKey;
+  renderAiCard('loading');
+  document.getElementById('aiCardBody').innerHTML=`<div class="ai-skeleton">
+    <div class="ai-skeleton-line" style="width:90%"></div><div class="ai-skeleton-line" style="width:75%"></div>
+    <div class="ai-skeleton-line" style="width:85%"></div><div class="ai-skeleton-line" style="width:60%"></div>
+    <div class="ai-skeleton-line" style="width:80%"></div></div>`;
+  const s=buildDataSummary(records);
+  const prompt=`你是用户的私人时间分析师。以下是用户的时间记录数据：
+
+总记录：${s.totalRecords}条，总时长：${s.totalHours}小时
+最近记录：\n${s.recentStr}
+各时间段累计（分钟）：${JSON.stringify(s.byPeriod)}
+活动时长TOP5：${s.topActivities}
+心情分布：${s.topMood||'暂无'}
+工作日/节假日（分钟）：${JSON.stringify(s.byDayType)}
+
+请写5-7条个性化时间洞察，每条一句话，数字序号开头。内容包括：时间段偏好、某活动的比重、工作日vs节假日差异、心情与活动关联、值得关注的规律、可改进之处。语气温暖亲切像朋友复盘，用"你"。直接给编号列表，不要前言后记。`;
+  try{
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})
+    });
+    const data=await resp.json();
+    const text=data.content?.map(c=>c.text||'').join('').trim();
+    if(!text) throw new Error('empty');
+    renderAiCard('done');
+    document.getElementById('aiCardBody').innerHTML=`<div class="ai-body">${text.split('\n').filter(l=>l.trim()).map(l=>`<p>${l.trim()}</p>`).join('')}</div>`;
+  }catch(e){
+    renderAiCard('done');
+    document.getElementById('aiCardBody').innerHTML=`<div class="ai-empty">分析暂时遇到问题，点击"重新分析"再试</div>`;
+  }
+}
+
+// ── UTILS ─────────────────────────────────────────────────
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2200);
+}
+</script>
+</body>
+</html>
